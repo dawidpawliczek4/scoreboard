@@ -8,10 +8,12 @@ ordered summary. Implemented as a plain Maven project with no runtime dependenci
 Implemented so far:
 
 1. **Start a new match** — `Scoreboard.startMatch(homeTeam, awayTeam)`, initial score 0–0
-2. **Get a summary of matches in progress** — `Scoreboard.getSummary()`, ordered by
+2. **Update the score** — `Scoreboard.updateScore(matchId, homeScore, awayScore)`,
+   absolute score pair
+3. **Get a summary of matches in progress** — `Scoreboard.getSummary()`, ordered by
    total score (descending), ties broken by most recently started match first
 
-Coming next: update score, finish match, one additional operation of choice.
+Coming next: finish match, one additional operation of choice.
 
 ## Usage
 
@@ -20,6 +22,8 @@ Scoreboard scoreboard = new Scoreboard();
 
 Match match = scoreboard.startMatch("Mexico", "Canada"); // 0–0
 scoreboard.startMatch("Spain", "Brazil");
+
+scoreboard.updateScore(match.id(), 0, 5); // Mexico 0 – Canada 5
 
 List<Match> summary = scoreboard.getSummary(); // immutable snapshot, ordered
 ```
@@ -47,6 +51,15 @@ Requires Java 25 and Maven 3.9+.
   that is already playing throws `IllegalStateException`.
 - **A team cannot play against itself**; null/blank team names are rejected
   (`IllegalArgumentException`).
+- **Score updates are absolute, not incremental.** `updateScore` receives the full
+  score pair (as in the task's example data) and replaces the current state — the
+  operation is idempotent and matches feeds that publish complete state.
+- **Scores may be lowered.** A VAR-revoked goal or an upstream data correction is a
+  legitimate update, so the only constraint on a score is that it is non-negative.
+  Guarding against out-of-order feed data is considered the data source's concern,
+  not this library's.
+- **Updating an unknown match id throws `IllegalArgumentException`**; a null id
+  throws `NullPointerException`.
 - **The scoreboard is not thread-safe.** The library assumes a single-threaded
   caller; concurrent access requires external synchronization. This keeps the
   implementation simple and is documented explicitly as a trade-off.

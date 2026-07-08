@@ -6,6 +6,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -50,6 +51,38 @@ public final class Scoreboard {
         teamsInPlay.add(homeKey);
         teamsInPlay.add(awayKey);
         return match;
+    }
+
+    /**
+     * Updates the score of a match in progress to the given absolute values.
+     *
+     * <p>Scores may also be lowered — upstream data corrections and VAR-revoked goals
+     * are legitimate; the only constraint is that scores are non-negative.
+     *
+     * @param matchId   id of the match to update
+     * @param homeScore new absolute home team score
+     * @param awayScore new absolute away team score
+     * @return an immutable snapshot of the match with the updated score
+     * @throws NullPointerException     if {@code matchId} is null
+     * @throws IllegalArgumentException if no match in progress has the given id,
+     *                                  or a score is negative
+     */
+    public Match updateScore(MatchId matchId, int homeScore, int awayScore) {
+        Objects.requireNonNull(matchId, "matchId must not be null");
+        MatchEntry entry = matches.get(matchId);
+        if (entry == null) {
+            throw new IllegalArgumentException("no match in progress with id: " + matchId);
+        }
+        if (homeScore < 0 || awayScore < 0) {
+            throw new IllegalArgumentException(
+                    "scores must not be negative: " + homeScore + "-" + awayScore);
+        }
+
+        Match current = entry.match();
+        Match updated = new Match(current.id(), current.homeTeam(), current.awayTeam(), homeScore, awayScore);
+        // keep the original startOrder — the summary tie-break is by start time, not update time
+        matches.put(matchId, new MatchEntry(updated, entry.startOrder()));
+        return updated;
     }
 
     /**

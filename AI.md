@@ -43,10 +43,40 @@ The workflow for each increment:
   `Instant.now()` for the "most recently started" tie-break, for determinism and
   testability.
 
-### What the AI generated vs. what I decided
+### What the AI generated vs. what I decided (increment 1)
 
 - AI generated: `pom.xml` test setup, `Match`/`MatchId`/`Scoreboard`
   implementation, the test suites, this documentation.
 - Human decided: increment scope (1 + 4 first), all four API decisions above,
   the requirement that tests cover 0–0 start, multiple simultaneous matches, and
   correct summary ordering.
+- Human review after the increment: simplified and consolidated the generated
+  validation tests in `ScoreboardTest` (merged parameterized/duplicated cases).
+
+## Increment 2 — update score (requirement 2)
+
+### Prompt history (2026-07-08)
+
+> *(translated from Polish)* "Plan the implementation of point 2 — update,
+> together with tests."
+
+AI proposed the test list up front (update reflected in summary, immutability of
+old snapshots, last-update-wins, negative/unknown-id validation, the full example
+scenario from the spec, tie-break by start order not update order) and asked four
+design questions before planning.
+
+### Design questions asked by AI and my decisions
+
+| Question | Options considered | Decision |
+|---|---|---|
+| Update semantics | absolute score pair vs. incremental goal events | **Absolute pair** — matches the spec's example data, idempotent |
+| Allow lowering the score? | any value ≥ 0 vs. monotonically increasing only | **Any value ≥ 0** — VAR/data corrections are legitimate |
+| Return type of `updateScore` | updated `Match` snapshot vs. `void` | **Updated `Match`** — consistent with `startMatch` |
+| Exception for unknown id | `IllegalArgumentException` vs. custom `MatchNotFoundException` | **`IllegalArgumentException`** — consistent with the no-custom-hierarchy convention |
+
+### Artifacts that guided the implementation
+
+- The approved plan for increment 2, including the decision that `updateScore`
+  replaces the `Match` snapshot while **preserving the internal start order**, so
+  the summary tie-break stays "most recently *started*", never "most recently
+  updated" (covered by a dedicated test).
