@@ -80,3 +80,31 @@ design questions before planning.
   replaces the `Match` snapshot while **preserving the internal start order**, so
   the summary tie-break stays "most recently *started*", never "most recently
   updated" (covered by a dedicated test).
+
+## Increment 3 — finish match (requirement 3)
+
+### Prompt history (2026-07-08)
+
+> *(translated from Polish)* "For the future: do not commit after implementing.
+> Now: plan the implementation of the next point."
+
+Process feedback applied from this increment on: the AI leaves changes in the
+working tree; commits are made by me after review.
+
+AI proposed the test list up front (removal from summary, final snapshot
+returned, teams freed case-insensitively with a fresh id and 0–0, unknown/null
+id, double finish, update-after-finish, ordering of remaining matches) and asked
+two design questions before planning.
+
+### Design questions asked by AI and my decisions
+
+| Question | Options considered | Decision |
+|---|---|---|
+| Return type of `finishMatch` | final `Match` snapshot vs. `void` | **Final `Match`** — consistent with the rest of the API, callers can archive the result |
+| Unknown / already finished id | `IllegalArgumentException` (fail-fast) vs. idempotent no-op | **`IllegalArgumentException`** — consistent with `updateScore`; a no-op would mask integration bugs |
+
+### Artifacts that guided the implementation
+
+- The approved plan for increment 3, including the note to use
+  `Map.remove(id)` directly (atomic get-and-remove, no state to roll back on
+  failure) and to free teams via the existing `normalize()` helper.

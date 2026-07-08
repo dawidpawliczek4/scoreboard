@@ -10,10 +10,12 @@ Implemented so far:
 1. **Start a new match** — `Scoreboard.startMatch(homeTeam, awayTeam)`, initial score 0–0
 2. **Update the score** — `Scoreboard.updateScore(matchId, homeScore, awayScore)`,
    absolute score pair
-3. **Get a summary of matches in progress** — `Scoreboard.getSummary()`, ordered by
+3. **Finish a match** — `Scoreboard.finishMatch(matchId)`, removes the match and
+   frees both teams
+4. **Get a summary of matches in progress** — `Scoreboard.getSummary()`, ordered by
    total score (descending), ties broken by most recently started match first
 
-Coming next: finish match, one additional operation of choice.
+Coming next: one additional operation of choice.
 
 ## Usage
 
@@ -26,6 +28,8 @@ scoreboard.startMatch("Spain", "Brazil");
 scoreboard.updateScore(match.id(), 0, 5); // Mexico 0 – Canada 5
 
 List<Match> summary = scoreboard.getSummary(); // immutable snapshot, ordered
+
+Match finalResult = scoreboard.finishMatch(match.id()); // removed, teams freed
 ```
 
 ## Building and testing
@@ -60,6 +64,13 @@ Requires Java 25 and Maven 3.9+.
   not this library's.
 - **Updating an unknown match id throws `IllegalArgumentException`**; a null id
   throws `NullPointerException`.
+- **Finishing a match removes it and frees both teams** — they can immediately
+  start a new match (with a fresh id and a 0–0 score). `finishMatch` returns the
+  final score snapshot so callers can archive it without querying first.
+- **Finish is fail-fast, not idempotent.** Finishing an unknown or already
+  finished match throws `IllegalArgumentException`, consistently with
+  `updateScore`. A silent no-op would be friendlier to at-least-once feeds but
+  masks integration bugs; deduplication is left to the caller.
 - **The scoreboard is not thread-safe.** The library assumes a single-threaded
   caller; concurrent access requires external synchronization. This keeps the
   implementation simple and is documented explicitly as a trade-off.

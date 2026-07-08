@@ -174,6 +174,95 @@ class ScoreboardTest {
     }
 
     @Nested
+    class FinishMatch {
+
+        @Test
+        void removesMatchFromSummary() {
+            Match finished = scoreboard.startMatch("Mexico", "Canada");
+            Match remaining = scoreboard.startMatch("Spain", "Brazil");
+
+            scoreboard.finishMatch(finished.id());
+
+            assertThat(scoreboard.getSummary()).containsExactly(remaining);
+        }
+
+        @Test
+        void returnsFinalSnapshot() {
+            Match started = scoreboard.startMatch("Argentina", "Australia");
+            scoreboard.updateScore(started.id(), 3, 1);
+
+            Match finalResult = scoreboard.finishMatch(started.id());
+
+            assertThat(finalResult.id()).isEqualTo(started.id());
+            assertThat(finalResult.homeTeam()).isEqualTo("Argentina");
+            assertThat(finalResult.awayTeam()).isEqualTo("Australia");
+            assertThat(finalResult.homeScore()).isEqualTo(3);
+            assertThat(finalResult.awayScore()).isEqualTo(1);
+        }
+
+        @Test
+        void freesTeamsForANewMatch() {
+            Match first = scoreboard.startMatch("Mexico", "Canada");
+            scoreboard.updateScore(first.id(), 0, 5);
+            scoreboard.finishMatch(first.id());
+
+            // case-insensitive: the same teams under different spelling may play again
+            Match rematch = scoreboard.startMatch("MEXICO", "canada");
+
+            assertThat(rematch.id()).isNotEqualTo(first.id());
+            assertThat(rematch.homeScore()).isZero();
+            assertThat(rematch.awayScore()).isZero();
+        }
+
+        @Test
+        void rejectsUnknownMatchId() {
+            assertThatIllegalArgumentException()
+                    .isThrownBy(() -> scoreboard.finishMatch(MatchId.newId()))
+                    .withMessageContaining("no match in progress");
+        }
+
+        @Test
+        void rejectsNullMatchId() {
+            assertThatNullPointerException()
+                    .isThrownBy(() -> scoreboard.finishMatch(null));
+        }
+
+        @Test
+        void rejectsDoubleFinish() {
+            Match match = scoreboard.startMatch("Mexico", "Canada");
+            scoreboard.finishMatch(match.id());
+
+            assertThatIllegalArgumentException()
+                    .isThrownBy(() -> scoreboard.finishMatch(match.id()));
+        }
+
+        @Test
+        void updateAfterFinishThrows() {
+            Match match = scoreboard.startMatch("Mexico", "Canada");
+            scoreboard.finishMatch(match.id());
+
+            assertThatIllegalArgumentException()
+                    .isThrownBy(() -> scoreboard.updateScore(match.id(), 1, 0));
+        }
+
+        @Test
+        void keepsOrderingOfRemainingMatches() {
+            Match lowest = scoreboard.startMatch("Mexico", "Canada");
+            Match middle = scoreboard.startMatch("Spain", "Brazil");
+            Match highest = scoreboard.startMatch("Germany", "France");
+            scoreboard.updateScore(lowest.id(), 1, 0);
+            scoreboard.updateScore(middle.id(), 2, 1);
+            scoreboard.updateScore(highest.id(), 3, 2);
+
+            scoreboard.finishMatch(middle.id());
+
+            assertThat(scoreboard.getSummary())
+                    .extracting(Match::homeTeam)
+                    .containsExactly("Germany", "Mexico");
+        }
+    }
+
+    @Nested
     class GetSummary {
 
         @Test

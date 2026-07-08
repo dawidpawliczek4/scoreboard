@@ -86,6 +86,29 @@ public final class Scoreboard {
     }
 
     /**
+     * Finishes a match in progress: removes it from the scoreboard and frees both
+     * teams to play in new matches.
+     *
+     * @param matchId id of the match to finish
+     * @return an immutable snapshot of the match with its final score
+     * @throws NullPointerException     if {@code matchId} is null
+     * @throws IllegalArgumentException if no match in progress has the given id
+     *                                  (including a match that has already finished)
+     */
+    public Match finishMatch(MatchId matchId) {
+        Objects.requireNonNull(matchId, "matchId must not be null");
+        MatchEntry entry = matches.remove(matchId);
+        if (entry == null) {
+            throw new IllegalArgumentException("no match in progress with id: " + matchId);
+        }
+
+        Match finished = entry.match();
+        teamsInPlay.remove(normalize(finished.homeTeam()));
+        teamsInPlay.remove(normalize(finished.awayTeam()));
+        return finished;
+    }
+
+    /**
      * Returns a summary of matches in progress, ordered by total score (descending);
      * ties are broken by most recently started match first.
      *
