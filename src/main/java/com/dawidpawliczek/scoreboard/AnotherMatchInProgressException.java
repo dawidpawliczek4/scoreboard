@@ -1,9 +1,6 @@
 package com.dawidpawliczek.scoreboard;
 
-/**
- * Thrown when starting a match with a team that is already playing in another
- * match in progress.
- */
+/** Thrown when starting a match with a team that is already playing in another match. */
 public final class AnotherMatchInProgressException extends ScoreboardException {
 
     public AnotherMatchInProgressException(String team) {

@@ -3,16 +3,8 @@ package com.dawidpawliczek.scoreboard;
 import java.util.Objects;
 
 /**
- * Immutable snapshot of a match in progress.
- *
- * <p>Instances are created by {@link Scoreboard}; the scoreboard never mutates a
- * {@code Match} it has handed out, so callers can safely hold on to snapshots.
- *
- * @param id        unique identifier of the match
- * @param homeTeam  home team name (trimmed, original spelling preserved)
- * @param awayTeam  away team name (trimmed, original spelling preserved)
- * @param homeScore home team score, never negative
- * @param awayScore away team score, never negative
+ * Immutable snapshot of a match. Created by {@link Scoreboard} and never mutated —
+ * callers can safely hold on to it.
  */
 public record Match(MatchId id, String homeTeam, String awayTeam, int homeScore, int awayScore) {
 

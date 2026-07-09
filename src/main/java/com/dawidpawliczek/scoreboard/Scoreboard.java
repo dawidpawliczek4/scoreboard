@@ -11,21 +11,11 @@ import java.util.Set;
 import java.util.function.Consumer;
 
 /**
- * Live Football World Cup Scoreboard.
+ * Live Football World Cup Scoreboard: tracks matches in progress, provides an
+ * ordered summary, and notifies {@link #subscribe(Consumer) subscribed} listeners
+ * of every state change.
  *
- * <p>Tracks matches in progress and provides an ordered summary. Team names are
- * compared case-insensitively (after trimming) when enforcing uniqueness, but the
- * original spelling is preserved on the returned {@link Match} snapshots.
- *
- * <p>Listeners registered via {@link #subscribe(Consumer)} are notified of every
- * state change ({@link ScoreboardEvent}). Events are delivered synchronously on
- * the caller's thread, after the state has been mutated; a failed operation emits
- * nothing. A listener throwing never disrupts the operation or the remaining
- * listeners — failures are routed to the {@link #onListenerError(ListenerErrorHandler)}
- * handler instead.
- *
- * <p>This class is <strong>not</strong> thread-safe; callers requiring concurrent
- * access must synchronize externally.
+ * <p>Not thread-safe; callers requiring concurrent access must synchronize externally.
  */
 public final class Scoreboard {
 
@@ -39,14 +29,11 @@ public final class Scoreboard {
     };
 
     /**
-     * Starts a new match with an initial score of 0–0.
+     * Starts a new match at 0–0 and returns its immutable snapshot. Team names are
+     * trimmed; uniqueness checks are case-insensitive.
      *
-     * @param homeTeam home team name
-     * @param awayTeam away team name
-     * @return an immutable snapshot of the newly started match
-     * @throws IllegalArgumentException        if a team name is null or blank, or both names
-     *                                         refer to the same team (case-insensitive, trimmed)
-     * @throws AnotherMatchInProgressException if either team is already playing in another match
+     * @throws IllegalArgumentException        if a name is null/blank or both refer to the same team
+     * @throws AnotherMatchInProgressException if either team is already playing
      */
     public Match startMatch(String homeTeam, String awayTeam) {
         String home = requireTeamName(homeTeam, "homeTeam");
@@ -68,18 +55,12 @@ public final class Scoreboard {
     }
 
     /**
-     * Updates the score of a match in progress to the given absolute values.
+     * Sets the absolute score of a match in progress (lowering is allowed) and
+     * returns the updated immutable snapshot.
      *
-     * <p>Scores may also be lowered — upstream data corrections and VAR-revoked goals
-     * are legitimate; the only constraint is that scores are non-negative.
-     *
-     * @param matchId   id of the match to update
-     * @param homeScore new absolute home team score
-     * @param awayScore new absolute away team score
-     * @return an immutable snapshot of the match with the updated score
-     * @throws NullPointerException        if {@code matchId} is null
-     * @throws NoMatchInProgressException  if no match in progress has the given id
-     * @throws IllegalArgumentException    if a score is negative
+     * @throws NullPointerException       if {@code matchId} is null
+     * @throws NoMatchInProgressException if no match in progress has the given id
+     * @throws IllegalArgumentException   if a score is negative
      */
     public Match updateScore(MatchId matchId, int homeScore, int awayScore) {
         Objects.requireNonNull(matchId, "matchId must not be null");
@@ -101,14 +82,12 @@ public final class Scoreboard {
     }
 
     /**
-     * Finishes a match in progress: removes it from the scoreboard and frees both
-     * teams to play in new matches.
+     * Finishes a match: removes it from the scoreboard, frees both teams and
+     * returns the final-score snapshot.
      *
-     * @param matchId id of the match to finish
-     * @return an immutable snapshot of the match with its final score
      * @throws NullPointerException       if {@code matchId} is null
      * @throws NoMatchInProgressException if no match in progress has the given id
-     *                                    (including a match that has already finished)
+     *                                    (including an already finished one)
      */
     public Match finishMatch(MatchId matchId) {
         Objects.requireNonNull(matchId, "matchId must not be null");
@@ -125,15 +104,11 @@ public final class Scoreboard {
     }
 
     /**
-     * Subscribes a listener to all subsequent {@link ScoreboardEvent}s.
+     * Subscribes a listener to all subsequent {@link ScoreboardEvent}s. Events are
+     * delivered synchronously on the caller's thread, after the state change, in
+     * subscription order; failed operations emit nothing.
      *
-     * <p>Listeners are notified in subscription order. The same listener instance
-     * may be subscribed multiple times; each registration is independent. A
-     * subscription made while an event is being delivered takes effect from the
-     * next event.
-     *
-     * @param listener callback invoked for every event
-     * @return a handle used to cancel this registration
+     * @return a handle to cancel this registration
      * @throws NullPointerException if {@code listener} is null
      */
     public Subscription subscribe(Consumer<ScoreboardEvent> listener) {
@@ -144,13 +119,9 @@ public final class Scoreboard {
     }
 
     /**
-     * Registers the handler invoked when a listener throws while handling an event.
+     * Registers the handler for listener failures, replacing the previous one
+     * (default: ignore). An exception from the handler itself propagates to the caller.
      *
-     * <p>Replaces the previous handler; the default one ignores failures. An
-     * exception thrown by the handler itself propagates to the caller of the
-     * operation that emitted the event.
-     *
-     * @param handler callback receiving the event and the listener's exception
      * @throws NullPointerException if {@code handler} is null
      */
     public void onListenerError(ListenerErrorHandler handler) {
@@ -158,10 +129,8 @@ public final class Scoreboard {
     }
 
     /**
-     * Returns a summary of matches in progress, ordered by total score (descending);
-     * ties are broken by most recently started match first.
-     *
-     * @return an immutable snapshot list; never null
+     * Returns an immutable summary of matches in progress, ordered by total score
+     * (descending); ties broken by most recently started first.
      */
     public List<Match> getSummary() {
         return matches.values().stream()
@@ -189,14 +158,12 @@ public final class Scoreboard {
     }
 
     private void publish(ScoreboardEvent event) {
-        // iterate over a snapshot so listeners may subscribe/cancel during delivery;
-        // such changes take effect from the next event
+        // snapshot: listeners may subscribe/cancel during delivery (effective from the next event)
         for (Consumer<ScoreboardEvent> listener : List.copyOf(listeners.values())) {
             try {
                 listener.accept(event);
             } catch (RuntimeException e) {
-                // a broken listener must not disrupt the operation or the other
-                // listeners; Errors (OOM etc.) intentionally propagate
+                // a broken listener must not disrupt the operation or the other listeners
                 errorHandler.handle(event, e);
             }
         }

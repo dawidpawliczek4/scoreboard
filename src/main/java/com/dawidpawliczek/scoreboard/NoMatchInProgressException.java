@@ -1,9 +1,6 @@
 package com.dawidpawliczek.scoreboard;
 
-/**
- * Thrown when an operation references a match that is not in progress — an unknown
- * id or a match that has already finished.
- */
+/** Thrown when an operation references a match that is not in progress — unknown or already finished. */
 public final class NoMatchInProgressException extends ScoreboardException {
 
     public NoMatchInProgressException(MatchId matchId) {

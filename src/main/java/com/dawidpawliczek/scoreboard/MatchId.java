@@ -3,12 +3,7 @@ package com.dawidpawliczek.scoreboard;
 import java.util.Objects;
 import java.util.UUID;
 
-/**
- * Typed identifier of a match on the scoreboard.
- *
- * <p>Returned by {@link Scoreboard#startMatch(String, String)} (as part of {@link Match})
- * and used to address the match in subsequent operations.
- */
+/** Typed identifier of a match, assigned by {@link Scoreboard#startMatch(String, String)}. */
 public record MatchId(UUID value) {
 
     public MatchId {
