@@ -31,9 +31,9 @@ public final class Scoreboard {
      * @param homeTeam home team name
      * @param awayTeam away team name
      * @return an immutable snapshot of the newly started match
-     * @throws IllegalArgumentException if a team name is null or blank, or both names
-     *                                  refer to the same team (case-insensitive, trimmed)
-     * @throws IllegalStateException    if either team is already playing in another match
+     * @throws IllegalArgumentException        if a team name is null or blank, or both names
+     *                                         refer to the same team (case-insensitive, trimmed)
+     * @throws AnotherMatchInProgressException if either team is already playing in another match
      */
     public Match startMatch(String homeTeam, String awayTeam) {
         String home = requireTeamName(homeTeam, "homeTeam");
@@ -63,15 +63,15 @@ public final class Scoreboard {
      * @param homeScore new absolute home team score
      * @param awayScore new absolute away team score
      * @return an immutable snapshot of the match with the updated score
-     * @throws NullPointerException     if {@code matchId} is null
-     * @throws IllegalArgumentException if no match in progress has the given id,
-     *                                  or a score is negative
+     * @throws NullPointerException        if {@code matchId} is null
+     * @throws NoMatchInProgressException  if no match in progress has the given id
+     * @throws IllegalArgumentException    if a score is negative
      */
     public Match updateScore(MatchId matchId, int homeScore, int awayScore) {
         Objects.requireNonNull(matchId, "matchId must not be null");
         MatchEntry entry = matches.get(matchId);
         if (entry == null) {
-            throw new IllegalArgumentException("no match in progress with id: " + matchId);
+            throw new NoMatchInProgressException(matchId);
         }
         if (homeScore < 0 || awayScore < 0) {
             throw new IllegalArgumentException(
@@ -91,15 +91,15 @@ public final class Scoreboard {
      *
      * @param matchId id of the match to finish
      * @return an immutable snapshot of the match with its final score
-     * @throws NullPointerException     if {@code matchId} is null
-     * @throws IllegalArgumentException if no match in progress has the given id
-     *                                  (including a match that has already finished)
+     * @throws NullPointerException       if {@code matchId} is null
+     * @throws NoMatchInProgressException if no match in progress has the given id
+     *                                    (including a match that has already finished)
      */
     public Match finishMatch(MatchId matchId) {
         Objects.requireNonNull(matchId, "matchId must not be null");
         MatchEntry entry = matches.remove(matchId);
         if (entry == null) {
-            throw new IllegalArgumentException("no match in progress with id: " + matchId);
+            throw new NoMatchInProgressException(matchId);
         }
 
         Match finished = entry.match();
@@ -135,7 +135,7 @@ public final class Scoreboard {
 
     private void requireNotInPlay(String team, String teamKey) {
         if (teamsInPlay.contains(teamKey)) {
-            throw new IllegalStateException("team is already playing in another match: " + team);
+            throw new AnotherMatchInProgressException(team);
         }
     }
 

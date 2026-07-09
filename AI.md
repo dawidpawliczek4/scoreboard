@@ -108,3 +108,41 @@ two design questions before planning.
 - The approved plan for increment 3, including the note to use
   `Map.remove(id)` directly (atomic get-and-remove, no state to roll back on
   failure) and to free teams via the existing `normalize()` helper.
+
+## Design revision — custom domain exceptions (2026-07-09)
+
+### Prompt history
+
+> *(translated from Polish)* "Can we somehow get rid of `MatchTest.java` and fold
+> its test cases into `ScoreboardTest.java`? Or do we need those test cases at
+> all?"
+
+AI's analysis: `totalScore()` is covered indirectly by the ordering tests, but the
+`Match`/`MatchId` canonical constructors are public API (record constructors
+cannot be hidden), so their invariant guards deserve coverage. AI proposed folding
+them into a nested class in `ScoreboardTest`; **I rejected the merge — `MatchTest`
+stays as a separate file** (test-class-per-production-class convention).
+
+> *(translated from Polish)* "I think it's worth introducing custom exceptions.
+> Give me pros and cons. I think something like `ValidationException`,
+> `AnotherMatchInProgressException`, `NoMatchInProgressException` would be best."
+
+### Pros and cons discussed
+
+- **For**: selective catch without brittle message matching (a message-based
+  assertion had already broken once in this project); separating domain states
+  from programming errors; easy mapping to error codes in a wrapping service.
+- **Against**: Effective Java Item 72 (prefer standard exceptions); extra public
+  API surface; value exists only if callers actually catch selectively.
+- AI recommended a **hybrid** and argued against my proposed `ValidationException`:
+  null/blank/negative arguments are caller bugs, not domain states — nobody
+  meaningfully catches them, and introducing it would force `Match`/`MatchId` to
+  throw it too for consistency.
+
+### Decision
+
+Hybrid variant: sealed base `ScoreboardException extends RuntimeException` with
+`AnotherMatchInProgressException` (start: team already playing) and
+`NoMatchInProgressException` (update/finish: unknown or finished id). Argument
+validation stays on `IllegalArgumentException`/`NullPointerException`;
+`Match`/`MatchId` unchanged.

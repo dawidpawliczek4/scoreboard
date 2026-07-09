@@ -11,8 +11,8 @@ import org.junit.jupiter.params.provider.ValueSource;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
-import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
 import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.groups.Tuple.tuple;
@@ -88,10 +88,10 @@ class ScoreboardTest {
         void rejectsTeamAlreadyPlayingInAnotherMatch() {
             scoreboard.startMatch("Mexico", "Canada");
 
-            assertThatIllegalStateException()
+            assertThatExceptionOfType(AnotherMatchInProgressException.class)
                     .isThrownBy(() -> scoreboard.startMatch("MEXICO", "Brazil"))
                     .withMessageContaining("MEXICO");
-            assertThatIllegalStateException()
+            assertThatExceptionOfType(AnotherMatchInProgressException.class)
                     .isThrownBy(() -> scoreboard.startMatch("Spain", "Canada"))
                     .withMessageContaining("Canada");
         }
@@ -161,9 +161,8 @@ class ScoreboardTest {
 
         @Test
         void rejectsUnknownMatchId() {
-            assertThatIllegalArgumentException()
-                    .isThrownBy(() -> scoreboard.updateScore(MatchId.newId(), 1, 0))
-                    .withMessageContaining("no match in progress");
+            assertThatExceptionOfType(NoMatchInProgressException.class)
+                    .isThrownBy(() -> scoreboard.updateScore(MatchId.newId(), 1, 0));
         }
 
         @Test
@@ -216,9 +215,8 @@ class ScoreboardTest {
 
         @Test
         void rejectsUnknownMatchId() {
-            assertThatIllegalArgumentException()
-                    .isThrownBy(() -> scoreboard.finishMatch(MatchId.newId()))
-                    .withMessageContaining("no match in progress");
+            assertThatExceptionOfType(NoMatchInProgressException.class)
+                    .isThrownBy(() -> scoreboard.finishMatch(MatchId.newId()));
         }
 
         @Test
@@ -232,7 +230,7 @@ class ScoreboardTest {
             Match match = scoreboard.startMatch("Mexico", "Canada");
             scoreboard.finishMatch(match.id());
 
-            assertThatIllegalArgumentException()
+            assertThatExceptionOfType(NoMatchInProgressException.class)
                     .isThrownBy(() -> scoreboard.finishMatch(match.id()));
         }
 
@@ -241,7 +239,7 @@ class ScoreboardTest {
             Match match = scoreboard.startMatch("Mexico", "Canada");
             scoreboard.finishMatch(match.id());
 
-            assertThatIllegalArgumentException()
+            assertThatExceptionOfType(NoMatchInProgressException.class)
                     .isThrownBy(() -> scoreboard.updateScore(match.id(), 1, 0));
         }
 

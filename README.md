@@ -52,7 +52,7 @@ Requires Java 25 and Maven 3.9+.
   (trimmed) spelling is preserved on the `Match` snapshot. This protects against
   duplicates from inconsistent upstream data.
 - **A team can play in at most one match at a time.** Starting a match with a team
-  that is already playing throws `IllegalStateException`.
+  that is already playing throws `AnotherMatchInProgressException`.
 - **A team cannot play against itself**; null/blank team names are rejected
   (`IllegalArgumentException`).
 - **Score updates are absolute, not incremental.** `updateScore` receives the full
@@ -62,13 +62,13 @@ Requires Java 25 and Maven 3.9+.
   legitimate update, so the only constraint on a score is that it is non-negative.
   Guarding against out-of-order feed data is considered the data source's concern,
   not this library's.
-- **Updating an unknown match id throws `IllegalArgumentException`**; a null id
+- **Updating an unknown match id throws `NoMatchInProgressException`**; a null id
   throws `NullPointerException`.
 - **Finishing a match removes it and frees both teams** — they can immediately
   start a new match (with a fresh id and a 0–0 score). `finishMatch` returns the
   final score snapshot so callers can archive it without querying first.
 - **Finish is fail-fast, not idempotent.** Finishing an unknown or already
-  finished match throws `IllegalArgumentException`, consistently with
+  finished match throws `NoMatchInProgressException`, consistently with
   `updateScore`. A silent no-op would be friendlier to at-least-once feeds but
   masks integration bugs; deduplication is left to the caller.
 - **The scoreboard is not thread-safe.** The library assumes a single-threaded
@@ -86,10 +86,17 @@ Requires Java 25 and Maven 3.9+.
   `startMatch` time. Wall-clock timestamps (`Instant.now()`) can collide for
   matches started within the same tick and make tests non-deterministic; a counter
   is exact and fully testable without mocking a clock.
-- **Standard exceptions over a custom hierarchy.** Input validation failures throw
-  `IllegalArgumentException`, state conflicts throw `IllegalStateException`. For a
-  library of this size a custom exception hierarchy would add surface area without
-  adding information.
+- **Domain exceptions for domain states, standard exceptions for caller bugs.**
+  Conflicts with the scoreboard's state — conditions a caller can meaningfully
+  react to, e.g. skipping a duplicate finish event from an at-least-once feed —
+  throw dedicated types under a sealed base `ScoreboardException`:
+  `AnotherMatchInProgressException` (team already playing) and
+  `NoMatchInProgressException` (unknown or finished match id). Matching on a type
+  is a stable contract; matching on a message is not. Plain argument bugs
+  (null/blank names, negative scores) intentionally stay on the standard
+  `IllegalArgumentException`/`NullPointerException` — nobody meaningfully catches
+  those, and the standard types are universally understood (Effective Java,
+  Item 72).
 - **`LinkedHashMap` keyed by `MatchId`** as internal storage: O(1) lookup for the
   upcoming id-based operations, and predictable iteration. Sorting happens on read
   in `getSummary()` — with tens of concurrent World Cup matches, sorting on each
