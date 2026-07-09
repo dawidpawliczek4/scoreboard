@@ -35,10 +35,10 @@ Match finalResult = scoreboard.finishMatch(match.id()); // removed, teams freed
 ## Building and testing
 
 ```bash
-mvn test
+./mvnw test
 ```
 
-Requires Java 25 and Maven 3.9+.
+Requires Java 25; Maven is provided by the bundled wrapper (`mvnw`).
 
 ## Assumptions
 
