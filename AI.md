@@ -1,197 +1,72 @@
 # AI Usage
 
+> This is the condensed version. The full record — complete prompt history,
+> every design question with the options considered, and per-increment artifacts —
+> lives in [AI-full.md](AI-full.md).
+
 ## Summary
 
-The project is developed with **Claude Code** (Anthropic's CLI agent, model: Opus).
-AI is used for design discussion, planning, code generation, and test authoring;
-all key API decisions are made explicitly by me through interactive Q&A before any
-code is written, and every change is reviewed before committing.
+Developed with **Claude Code** (Anthropic's CLI agent, model: Opus). AI handled
+design analysis, code generation, tests, and documentation; every key API decision
+was made by me through structured Q&A before code was written, and every change
+was reviewed by me before committing.
 
-The workflow for each increment:
+Workflow per increment:
 
-1. Point Claude at the task specification and the scope for the increment.
-2. Claude proposes an approach and asks structured questions about open design
-   decisions (with trade-offs and API previews for each option).
-3. I pick the options; Claude writes a plan file which I review and approve.
-4. Claude implements the code and tests, runs `mvn test`, and commits.
+1. I set the scope (one spec requirement at a time, each in its own commit).
+2. AI proposes approaches and asks design questions with trade-offs and API
+   previews per option; it also proposes the test list up front.
+3. I pick the options; AI writes an implementation plan which I approve.
+4. AI implements code + tests and runs `./mvnw test`; I review and commit.
 
-## Increment 1 — start match + summary (requirements 1 and 4)
+## Key decisions (mine, from options laid out by AI)
 
-### Prompt history (2026-07-07)
-
-> *(translated from Polish)* "`ODDS and Data - JAVA Coding Task.txt` — the task
-> specification. Let's start with points 1 and 4, i.e. start a new match and
-> summary. Before you plan — give me proposals for how we can approach the
-> solution. Remember about tests — starts with zeros, we can create multiple
-> matches, returns correctly, etc."
-
-### Design questions asked by AI and my decisions
-
-| Question | Options considered | Decision |
+| Area | Decision | Over the alternative of |
 |---|---|---|
-| How to identify a match in the API? | `startMatch` returns a `Match` with an id vs. addressing by team-name pair | **Return `Match` with `MatchId`** — robust against name typos |
-| Thread-safe from the start? | synchronized + concurrency test vs. single-threaded with documented assumption | **Single-threaded**, documented in README |
-| Test stack | JUnit 5 + AssertJ vs. plain JUnit 5 | **JUnit 5 + AssertJ** |
-| Team-name uniqueness | case-insensitive + trim vs. exact match | **Case-insensitive + trim**, original spelling preserved |
+| Match identity | `startMatch` returns `Match` with `MatchId`; other ops take the id | addressing by team-name pair |
+| Concurrency | single-threaded, documented | synchronized from the start |
+| Test stack | JUnit 5 + AssertJ | plain JUnit 5 |
+| Team names | case-insensitive + trim for uniqueness | exact match |
+| Update semantics | absolute score pair; lowering allowed (VAR/corrections) | incremental goal events; monotonic scores |
+| Return types | every operation returns a `Match` snapshot | `void` |
+| Unknown/finished id | fail-fast exception | idempotent no-op |
+| Exceptions | hybrid: sealed domain exceptions + standard IAE/NPE for argument bugs | my initial idea also had `ValidationException`; AI argued argument bugs are not domain states — accepted |
+| Feature of choice | event subscriptions (from 4 candidates AI proposed) | by-team lookup, match history, stats |
+| Listener failures | isolated + `onListenerError` handler | propagation (rejected as harmful), silent swallow, aggregate exception |
+| `ScoreUpdated` | on every successful update, carries `(previous, current)` | only on real changes, current only |
 
-### Artifacts that guided the implementation
+## Prompt history (condensed, translated from Polish)
 
-- The approved plan (structure, validation rules, sorting comparator, full test
-  list) — key points mirrored in `README.md` under *Assumptions* and *Design
-  decisions*.
-- AI-proposed idea adopted: **monotonic start-order counter** instead of
-  `Instant.now()` for the "most recently started" tie-break, for determinism and
-  testability.
+- *2026-07-07:* "Here's the task spec. Start with points 1 and 4. Before planning,
+  give me approach proposals. Remember tests: starts at zero, multiple matches,
+  correct ordering." → increment 1.
+- *2026-07-08:* "Plan point 2 — update, with tests." → increment 2.
+- *2026-07-08:* "For the future: do not commit after implementing." (process
+  feedback — from here on I review and commit myself) "Now plan the next point."
+  → increment 3.
+- *2026-07-09:* "Can we drop `MatchTest.java` and fold it into `ScoreboardTest` —
+  or do we need those cases at all?" → AI: record constructors are public API, the
+  guards deserve coverage; I kept `MatchTest` as a separate file.
+- *2026-07-09:* "I think custom exceptions are worth it — give me pros and cons.
+  Maybe `ValidationException`, `AnotherMatchInProgressException`,
+  `NoMatchInProgressException`." → hybrid variant chosen (see table).
+- *2026-07-09:* "Add the Maven wrapper." / "Shorten README.md and AI.md — too much
+  text for a recruiter."
+- *2026-07-09:* "Let's do the additional feature — proposals?" then "Plan the
+  score-change listener: `.subscribe()` with a lambda fired on every event." For
+  the failure contract I pushed on trade-offs ("what if a listener throws?"); AI
+  compared propagation / swallow / aggregate exception / error handler on a
+  two-subscriber scenario; my verdict: "propagation is IMO very mediocre" → error
+  handler in the API. → increment 4.
 
-### What the AI generated vs. what I decided (increment 1)
+## Artifacts that guided the implementation
 
-- AI generated: `pom.xml` test setup, `Match`/`MatchId`/`Scoreboard`
-  implementation, the test suites, this documentation.
-- Human decided: increment scope (1 + 4 first), all four API decisions above,
-  the requirement that tests cover 0–0 start, multiple simultaneous matches, and
-  correct summary ordering.
-- Human review after the increment: simplified and consolidated the generated
-  validation tests in `ScoreboardTest` (merged parameterized/duplicated cases).
-
-## Increment 2 — update score (requirement 2)
-
-### Prompt history (2026-07-08)
-
-> *(translated from Polish)* "Plan the implementation of point 2 — update,
-> together with tests."
-
-AI proposed the test list up front (update reflected in summary, immutability of
-old snapshots, last-update-wins, negative/unknown-id validation, the full example
-scenario from the spec, tie-break by start order not update order) and asked four
-design questions before planning.
-
-### Design questions asked by AI and my decisions
-
-| Question | Options considered | Decision |
-|---|---|---|
-| Update semantics | absolute score pair vs. incremental goal events | **Absolute pair** — matches the spec's example data, idempotent |
-| Allow lowering the score? | any value ≥ 0 vs. monotonically increasing only | **Any value ≥ 0** — VAR/data corrections are legitimate |
-| Return type of `updateScore` | updated `Match` snapshot vs. `void` | **Updated `Match`** — consistent with `startMatch` |
-| Exception for unknown id | `IllegalArgumentException` vs. custom `MatchNotFoundException` | **`IllegalArgumentException`** — consistent with the no-custom-hierarchy convention |
-
-### Artifacts that guided the implementation
-
-- The approved plan for increment 2, including the decision that `updateScore`
-  replaces the `Match` snapshot while **preserving the internal start order**, so
-  the summary tie-break stays "most recently *started*", never "most recently
-  updated" (covered by a dedicated test).
-
-## Increment 3 — finish match (requirement 3)
-
-### Prompt history (2026-07-08)
-
-> *(translated from Polish)* "For the future: do not commit after implementing.
-> Now: plan the implementation of the next point."
-
-Process feedback applied from this increment on: the AI leaves changes in the
-working tree; commits are made by me after review.
-
-AI proposed the test list up front (removal from summary, final snapshot
-returned, teams freed case-insensitively with a fresh id and 0–0, unknown/null
-id, double finish, update-after-finish, ordering of remaining matches) and asked
-two design questions before planning.
-
-### Design questions asked by AI and my decisions
-
-| Question | Options considered | Decision |
-|---|---|---|
-| Return type of `finishMatch` | final `Match` snapshot vs. `void` | **Final `Match`** — consistent with the rest of the API, callers can archive the result |
-| Unknown / already finished id | `IllegalArgumentException` (fail-fast) vs. idempotent no-op | **`IllegalArgumentException`** — consistent with `updateScore`; a no-op would mask integration bugs |
-
-### Artifacts that guided the implementation
-
-- The approved plan for increment 3, including the note to use
-  `Map.remove(id)` directly (atomic get-and-remove, no state to roll back on
-  failure) and to free teams via the existing `normalize()` helper.
-
-## Design revision — custom domain exceptions (2026-07-09)
-
-### Prompt history
-
-> *(translated from Polish)* "Can we somehow get rid of `MatchTest.java` and fold
-> its test cases into `ScoreboardTest.java`? Or do we need those test cases at
-> all?"
-
-AI's analysis: `totalScore()` is covered indirectly by the ordering tests, but the
-`Match`/`MatchId` canonical constructors are public API (record constructors
-cannot be hidden), so their invariant guards deserve coverage. AI proposed folding
-them into a nested class in `ScoreboardTest`; **I rejected the merge — `MatchTest`
-stays as a separate file** (test-class-per-production-class convention).
-
-> *(translated from Polish)* "I think it's worth introducing custom exceptions.
-> Give me pros and cons. I think something like `ValidationException`,
-> `AnotherMatchInProgressException`, `NoMatchInProgressException` would be best."
-
-### Pros and cons discussed
-
-- **For**: selective catch without brittle message matching (a message-based
-  assertion had already broken once in this project); separating domain states
-  from programming errors; easy mapping to error codes in a wrapping service.
-- **Against**: Effective Java Item 72 (prefer standard exceptions); extra public
-  API surface; value exists only if callers actually catch selectively.
-- AI recommended a **hybrid** and argued against my proposed `ValidationException`:
-  null/blank/negative arguments are caller bugs, not domain states — nobody
-  meaningfully catches them, and introducing it would force `Match`/`MatchId` to
-  throw it too for consistency.
-
-### Decision
-
-Hybrid variant: sealed base `ScoreboardException extends RuntimeException` with
-`AnotherMatchInProgressException` (start: team already playing) and
-`NoMatchInProgressException` (update/finish: unknown or finished id). Argument
-validation stays on `IllegalArgumentException`/`NullPointerException`;
-`Match`/`MatchId` unchanged.
-
-Also in this session: AI suggested adding the Maven wrapper so reviewers can
-build without a local Maven install (`./mvnw test`).
-
-## Increment 4 — event subscriptions (requirement 5, feature of choice)
-
-### Prompt history (2026-07-09)
-
-> *(translated from Polish)* "Okay, let's take care of the additional feature.
-> Any proposals?"
-
-AI proposed four candidates with trade-offs: match lookup by team (recommended by
-AI), finished-match history, **score-change listeners**, and scoreboard
-statistics. I picked the listeners:
-
-> *(translated from Polish)* "Plan the implementation of the additional feature —
-> score change listener. `.subscribe()` with passing a lambda that fires on every
-> event."
-
-For the listener-failure contract I asked for an in-depth trade-off analysis:
-
-> *(translated from Polish)* "What if a listener throws an exception — what are
-> the trade-offs?" … "Explain the trade-offs to me."
-
-AI walked through four variants on a concrete two-subscriber scenario (odds +
-stats modules): (1) plain propagation — first failing listener aborts
-notification and escapes the operation; (2) isolate and swallow; (3) isolate,
-notify all, then throw one aggregate exception with suppressed causes;
-(4) isolate + user-registered error handler. My verdict on propagation: *"option
-1 is IMO very mediocre"* — a broken subscriber must not starve the others or make
-a succeeded update look failed. I chose **variant 4** (error handler in the API).
-
-### Design questions asked by AI and my decisions
-
-| Question | Options considered | Decision |
-|---|---|---|
-| Which feature of choice | by-team lookup / finished-match history / listeners / stats | **Listeners** — closest to a real odds/data product (push over poll) |
-| Unsubscribe mechanism | `Subscription` handle vs. none vs. `unsubscribe(listener)` | **`Subscription` handle** — no reliance on lambda identity |
-| Listener throws | propagate / swallow / aggregate exception / error handler | **Error handler** (`onListenerError`) — operation and other listeners always unaffected, failures land in the user's logging |
-| `ScoreUpdated` semantics | every successful update with `(previous, current)` vs. only real changes with `current` | **Every update, previous+current** — subscribers compute the delta and filter no-ops |
-
-### Artifacts that guided the implementation
-
-- The approved plan for increment 4, including: sealed `ScoreboardEvent` with
-  nested records (exhaustive pattern-matching switch for consumers), synchronous
-  post-mutation delivery on the caller's thread, snapshot iteration so listeners
-  can subscribe/cancel during delivery, catching `RuntimeException` only
-  (`Error`s propagate), and the subscription-order = insertion-order counter
-  reusing the same pattern as the summary's start-order counter.
+- Per-increment plan files (approach, file layout, validation rules, full test
+  list) — approved before implementation; key points mirrored in `README.md`.
+- Ideas contributed by AI and adopted: monotonic start-order counter instead of
+  timestamps (deterministic tie-break), preserving start order across updates,
+  atomic `Map.remove` in `finishMatch`, snapshot iteration in event delivery so
+  listeners can subscribe/cancel mid-notification.
+- My corrections along the way: no auto-commits, keeping `MatchTest` separate,
+  consolidating generated tests into a leaner style, rejecting listener-error
+  propagation, trimming this documentation.
