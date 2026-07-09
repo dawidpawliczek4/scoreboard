@@ -146,3 +146,52 @@ Hybrid variant: sealed base `ScoreboardException extends RuntimeException` with
 `NoMatchInProgressException` (update/finish: unknown or finished id). Argument
 validation stays on `IllegalArgumentException`/`NullPointerException`;
 `Match`/`MatchId` unchanged.
+
+Also in this session: AI suggested adding the Maven wrapper so reviewers can
+build without a local Maven install (`./mvnw test`).
+
+## Increment 4 — event subscriptions (requirement 5, feature of choice)
+
+### Prompt history (2026-07-09)
+
+> *(translated from Polish)* "Okay, let's take care of the additional feature.
+> Any proposals?"
+
+AI proposed four candidates with trade-offs: match lookup by team (recommended by
+AI), finished-match history, **score-change listeners**, and scoreboard
+statistics. I picked the listeners:
+
+> *(translated from Polish)* "Plan the implementation of the additional feature —
+> score change listener. `.subscribe()` with passing a lambda that fires on every
+> event."
+
+For the listener-failure contract I asked for an in-depth trade-off analysis:
+
+> *(translated from Polish)* "What if a listener throws an exception — what are
+> the trade-offs?" … "Explain the trade-offs to me."
+
+AI walked through four variants on a concrete two-subscriber scenario (odds +
+stats modules): (1) plain propagation — first failing listener aborts
+notification and escapes the operation; (2) isolate and swallow; (3) isolate,
+notify all, then throw one aggregate exception with suppressed causes;
+(4) isolate + user-registered error handler. My verdict on propagation: *"option
+1 is IMO very mediocre"* — a broken subscriber must not starve the others or make
+a succeeded update look failed. I chose **variant 4** (error handler in the API).
+
+### Design questions asked by AI and my decisions
+
+| Question | Options considered | Decision |
+|---|---|---|
+| Which feature of choice | by-team lookup / finished-match history / listeners / stats | **Listeners** — closest to a real odds/data product (push over poll) |
+| Unsubscribe mechanism | `Subscription` handle vs. none vs. `unsubscribe(listener)` | **`Subscription` handle** — no reliance on lambda identity |
+| Listener throws | propagate / swallow / aggregate exception / error handler | **Error handler** (`onListenerError`) — operation and other listeners always unaffected, failures land in the user's logging |
+| `ScoreUpdated` semantics | every successful update with `(previous, current)` vs. only real changes with `current` | **Every update, previous+current** — subscribers compute the delta and filter no-ops |
+
+### Artifacts that guided the implementation
+
+- The approved plan for increment 4, including: sealed `ScoreboardEvent` with
+  nested records (exhaustive pattern-matching switch for consumers), synchronous
+  post-mutation delivery on the caller's thread, snapshot iteration so listeners
+  can subscribe/cancel during delivery, catching `RuntimeException` only
+  (`Error`s propagate), and the subscription-order = insertion-order counter
+  reusing the same pattern as the summary's start-order counter.

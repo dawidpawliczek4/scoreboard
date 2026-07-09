@@ -8,7 +8,9 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.NullSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
@@ -257,6 +259,174 @@ class ScoreboardTest {
             assertThat(scoreboard.getSummary())
                     .extracting(Match::homeTeam)
                     .containsExactly("Germany", "Mexico");
+        }
+    }
+
+    @Nested
+    class Events {
+
+        private final List<ScoreboardEvent> events = new ArrayList<>();
+
+        @Test
+        void notifiesMatchStarted() {
+            scoreboard.subscribe(events::add);
+
+            Match match = scoreboard.startMatch("Mexico", "Canada");
+
+            assertThat(events).containsExactly(new ScoreboardEvent.MatchStarted(match));
+        }
+
+        @Test
+        void notifiesScoreUpdatedWithPreviousAndCurrent() {
+            Match started = scoreboard.startMatch("Mexico", "Canada");
+            scoreboard.subscribe(events::add);
+
+            Match updated = scoreboard.updateScore(started.id(), 2, 1);
+
+            assertThat(events).containsExactly(new ScoreboardEvent.ScoreUpdated(started, updated));
+        }
+
+        @Test
+        void notifiesScoreUpdatedOnNoOpUpdate() {
+            Match match = scoreboard.startMatch("Mexico", "Canada");
+            scoreboard.updateScore(match.id(), 2, 1);
+            scoreboard.subscribe(events::add);
+
+            scoreboard.updateScore(match.id(), 2, 1);
+
+            assertThat(events)
+                    .singleElement()
+                    .isInstanceOfSatisfying(ScoreboardEvent.ScoreUpdated.class,
+                            e -> assertThat(e.previous()).isEqualTo(e.current()));
+        }
+
+        @Test
+        void notifiesMatchFinishedWithFinalScore() {
+            Match match = scoreboard.startMatch("Mexico", "Canada");
+            Match finalScore = scoreboard.updateScore(match.id(), 0, 5);
+            scoreboard.subscribe(events::add);
+
+            scoreboard.finishMatch(match.id());
+
+            assertThat(events).containsExactly(new ScoreboardEvent.MatchFinished(finalScore));
+        }
+
+        @Test
+        void firesAfterStateMutation() {
+            List<List<Match>> summariesSeen = new ArrayList<>();
+            scoreboard.subscribe(event -> summariesSeen.add(scoreboard.getSummary()));
+
+            scoreboard.startMatch("Mexico", "Canada");
+
+            assertThat(summariesSeen).singleElement().satisfies(
+                    summary -> assertThat(summary).hasSize(1));
+        }
+
+        @Test
+        void notifiesAllSubscribersInSubscriptionOrder() {
+            List<String> order = new ArrayList<>();
+            scoreboard.subscribe(event -> order.add("first"));
+            scoreboard.subscribe(event -> order.add("second"));
+
+            scoreboard.startMatch("Mexico", "Canada");
+
+            assertThat(order).containsExactly("first", "second");
+        }
+
+        @Test
+        void cancelStopsNotifications() {
+            List<ScoreboardEvent> other = new ArrayList<>();
+            Subscription subscription = scoreboard.subscribe(events::add);
+            scoreboard.subscribe(other::add);
+
+            subscription.cancel();
+            subscription.cancel(); // idempotent
+            scoreboard.startMatch("Mexico", "Canada");
+
+            assertThat(events).isEmpty();
+            assertThat(other).hasSize(1);
+        }
+
+        @Test
+        void sameLambdaSubscribedTwiceIsNotifiedTwice() {
+            Consumer<ScoreboardEvent> listener = events::add;
+            scoreboard.subscribe(listener);
+            Subscription second = scoreboard.subscribe(listener);
+
+            scoreboard.startMatch("Mexico", "Canada");
+            second.cancel();
+            scoreboard.startMatch("Spain", "Brazil");
+
+            assertThat(events).hasSize(3); // 2 for the first event, 1 for the second
+        }
+
+        @Test
+        void failedOperationEmitsNothing() {
+            scoreboard.startMatch("Mexico", "Canada");
+            scoreboard.subscribe(events::add);
+
+            assertThatExceptionOfType(NoMatchInProgressException.class)
+                    .isThrownBy(() -> scoreboard.updateScore(MatchId.newId(), 1, 0));
+            assertThatExceptionOfType(AnotherMatchInProgressException.class)
+                    .isThrownBy(() -> scoreboard.startMatch("Mexico", "Brazil"));
+
+            assertThat(events).isEmpty();
+        }
+
+        @Test
+        void listenerFailureDoesNotBreakOperationOrOtherListeners() {
+            record Failure(ScoreboardEvent event, RuntimeException error) {
+            }
+            List<Failure> failures = new ArrayList<>();
+            RuntimeException boom = new RuntimeException("boom");
+            scoreboard.onListenerError((event, error) -> failures.add(new Failure(event, error)));
+            scoreboard.subscribe(event -> {
+                throw boom;
+            });
+            scoreboard.subscribe(events::add);
+
+            Match match = scoreboard.startMatch("Mexico", "Canada");
+
+            assertThat(scoreboard.getSummary()).containsExactly(match);
+            assertThat(events).containsExactly(new ScoreboardEvent.MatchStarted(match));
+            assertThat(failures).containsExactly(
+                    new Failure(new ScoreboardEvent.MatchStarted(match), boom));
+        }
+
+        @Test
+        void listenerFailureWithoutHandlerIsSwallowed() {
+            scoreboard.subscribe(event -> {
+                throw new RuntimeException("boom");
+            });
+            scoreboard.subscribe(events::add);
+
+            Match match = scoreboard.startMatch("Mexico", "Canada");
+
+            assertThat(scoreboard.getSummary()).containsExactly(match);
+            assertThat(events).hasSize(1);
+        }
+
+        @Test
+        void subscribeAndCancelFromWithinListenerIsSafe() {
+            Subscription[] self = new Subscription[1];
+            self[0] = scoreboard.subscribe(event -> {
+                self[0].cancel();
+                scoreboard.subscribe(events::add); // takes effect from the next event
+            });
+
+            scoreboard.startMatch("Mexico", "Canada");
+            assertThat(events).isEmpty();
+
+            scoreboard.startMatch("Spain", "Brazil");
+            assertThat(events).hasSize(1);
+        }
+
+        @Test
+        void rejectsNullListenerAndHandler() {
+            assertThatNullPointerException()
+                    .isThrownBy(() -> scoreboard.subscribe(null));
+            assertThatNullPointerException()
+                    .isThrownBy(() -> scoreboard.onListenerError(null));
         }
     }
 

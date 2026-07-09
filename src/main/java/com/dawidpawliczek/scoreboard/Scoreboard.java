@@ -8,6 +8,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.Consumer;
 
 /**
  * Live Football World Cup Scoreboard.
@@ -15,6 +16,13 @@ import java.util.Set;
  * <p>Tracks matches in progress and provides an ordered summary. Team names are
  * compared case-insensitively (after trimming) when enforcing uniqueness, but the
  * original spelling is preserved on the returned {@link Match} snapshots.
+ *
+ * <p>Listeners registered via {@link #subscribe(Consumer)} are notified of every
+ * state change ({@link ScoreboardEvent}). Events are delivered synchronously on
+ * the caller's thread, after the state has been mutated; a failed operation emits
+ * nothing. A listener throwing never disrupts the operation or the remaining
+ * listeners — failures are routed to the {@link #onListenerError(ListenerErrorHandler)}
+ * handler instead.
  *
  * <p>This class is <strong>not</strong> thread-safe; callers requiring concurrent
  * access must synchronize externally.
@@ -24,6 +32,11 @@ public final class Scoreboard {
     private final Map<MatchId, MatchEntry> matches = new LinkedHashMap<>();
     private final Set<String> teamsInPlay = new HashSet<>();
     private long nextStartOrder;
+
+    private final Map<Long, Consumer<ScoreboardEvent>> listeners = new LinkedHashMap<>();
+    private long nextSubscriptionId;
+    private ListenerErrorHandler errorHandler = (event, error) -> {
+    };
 
     /**
      * Starts a new match with an initial score of 0–0.
@@ -50,6 +63,7 @@ public final class Scoreboard {
         matches.put(match.id(), new MatchEntry(match, nextStartOrder++));
         teamsInPlay.add(homeKey);
         teamsInPlay.add(awayKey);
+        publish(new ScoreboardEvent.MatchStarted(match));
         return match;
     }
 
@@ -82,6 +96,7 @@ public final class Scoreboard {
         Match updated = new Match(current.id(), current.homeTeam(), current.awayTeam(), homeScore, awayScore);
         // keep the original startOrder — the summary tie-break is by start time, not update time
         matches.put(matchId, new MatchEntry(updated, entry.startOrder()));
+        publish(new ScoreboardEvent.ScoreUpdated(current, updated));
         return updated;
     }
 
@@ -105,7 +120,41 @@ public final class Scoreboard {
         Match finished = entry.match();
         teamsInPlay.remove(normalize(finished.homeTeam()));
         teamsInPlay.remove(normalize(finished.awayTeam()));
+        publish(new ScoreboardEvent.MatchFinished(finished));
         return finished;
+    }
+
+    /**
+     * Subscribes a listener to all subsequent {@link ScoreboardEvent}s.
+     *
+     * <p>Listeners are notified in subscription order. The same listener instance
+     * may be subscribed multiple times; each registration is independent. A
+     * subscription made while an event is being delivered takes effect from the
+     * next event.
+     *
+     * @param listener callback invoked for every event
+     * @return a handle used to cancel this registration
+     * @throws NullPointerException if {@code listener} is null
+     */
+    public Subscription subscribe(Consumer<ScoreboardEvent> listener) {
+        Objects.requireNonNull(listener, "listener must not be null");
+        long id = nextSubscriptionId++;
+        listeners.put(id, listener);
+        return () -> listeners.remove(id);
+    }
+
+    /**
+     * Registers the handler invoked when a listener throws while handling an event.
+     *
+     * <p>Replaces the previous handler; the default one ignores failures. An
+     * exception thrown by the handler itself propagates to the caller of the
+     * operation that emitted the event.
+     *
+     * @param handler callback receiving the event and the listener's exception
+     * @throws NullPointerException if {@code handler} is null
+     */
+    public void onListenerError(ListenerErrorHandler handler) {
+        this.errorHandler = Objects.requireNonNull(handler, "handler must not be null");
     }
 
     /**
@@ -136,6 +185,20 @@ public final class Scoreboard {
     private void requireNotInPlay(String team, String teamKey) {
         if (teamsInPlay.contains(teamKey)) {
             throw new AnotherMatchInProgressException(team);
+        }
+    }
+
+    private void publish(ScoreboardEvent event) {
+        // iterate over a snapshot so listeners may subscribe/cancel during delivery;
+        // such changes take effect from the next event
+        for (Consumer<ScoreboardEvent> listener : List.copyOf(listeners.values())) {
+            try {
+                listener.accept(event);
+            } catch (RuntimeException e) {
+                // a broken listener must not disrupt the operation or the other
+                // listeners; Errors (OOM etc.) intentionally propagate
+                errorHandler.handle(event, e);
+            }
         }
     }
 

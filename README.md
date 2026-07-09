@@ -14,8 +14,8 @@ Implemented so far:
    frees both teams
 4. **Get a summary of matches in progress** — `Scoreboard.getSummary()`, ordered by
    total score (descending), ties broken by most recently started match first
-
-Coming next: one additional operation of choice.
+5. **Feature of choice: event subscriptions** — `Scoreboard.subscribe(listener)`,
+   see [Feature of choice](#feature-of-choice-requirement-5)
 
 ## Usage
 
@@ -30,6 +30,23 @@ scoreboard.updateScore(match.id(), 0, 5); // Mexico 0 – Canada 5
 List<Match> summary = scoreboard.getSummary(); // immutable snapshot, ordered
 
 Match finalResult = scoreboard.finishMatch(match.id()); // removed, teams freed
+```
+
+Reacting to scoreboard events (see [Feature of choice](#feature-of-choice-requirement-5)):
+
+```java
+Subscription subscription = scoreboard.subscribe(event -> {
+    switch (event) {
+        case ScoreboardEvent.MatchStarted(Match m) -> odds.open(m);
+        case ScoreboardEvent.ScoreUpdated(Match prev, Match curr) -> {
+            if (curr.totalScore() != prev.totalScore()) odds.recalculate(curr);
+        }
+        case ScoreboardEvent.MatchFinished(Match m) -> odds.settle(m);
+    }
+});
+scoreboard.onListenerError((event, error) -> log.error("listener failed for {}", event, error));
+...
+subscription.cancel();
 ```
 
 ## Building and testing
@@ -104,4 +121,33 @@ Requires Java 25; Maven is provided by the bundled wrapper (`mvnw`).
 
 ## Feature of choice (requirement 5)
 
-Not implemented yet — will be introduced in a distinct commit and documented here.
+**Event subscriptions** — `subscribe(Consumer<ScoreboardEvent>)` notifies listeners
+of every state change: `MatchStarted`, `ScoreUpdated`, `MatchFinished`.
+
+**Why this feature.** This library models a live data product: the natural
+consumers of a World Cup scoreboard (odds engines, statistics, push notifications)
+*react to changes* rather than poll `getSummary()` in a loop. A subscription API
+turns the library from a passive store into a data source, which is the actual
+job of a sports data platform. The sealed `ScoreboardEvent` hierarchy also
+showcases exhaustive pattern-matching `switch` on the consumer side.
+
+Design decisions:
+
+- **Synchronous delivery, after mutation.** Events fire on the caller's thread
+  once the state change is applied — a listener querying the scoreboard during a
+  notification sees the new state. Failed operations emit nothing. No threads or
+  queues: the library stays single-threaded (see assumptions), and asynchrony is
+  the caller's decision to make.
+- **Listener failures are isolated, never lost by default.** A throwing listener
+  cannot break the operation (the score *did* change — that fact is not
+  negotiable) or starve the remaining listeners. Failures are routed to a handler
+  registered via `onListenerError(...)`; the library has no logger of its own, so
+  this hands the error to the code that does. Without a handler, failures are
+  ignored (documented trade-off). `Error`s (OOM etc.) intentionally propagate.
+- **`ScoreUpdated` fires on every successful update and carries
+  `(previous, current)`.** The library does not guess what counts as a "change" —
+  subscribers compute the delta (crucial for odds) and filter no-ops themselves.
+- **`subscribe` returns a `Subscription` handle** with an idempotent `cancel()` —
+  no reliance on lambda identity, and the same listener may be registered twice.
+  Listeners are notified in subscription order; subscribing or cancelling from
+  inside a listener is safe and takes effect from the next event.
